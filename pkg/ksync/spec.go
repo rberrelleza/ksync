@@ -2,6 +2,7 @@ package ksync
 
 import (
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -19,8 +20,10 @@ type SpecStatus string
 
 // See docs/spec-lifecycle.png
 const (
-	SpecWaiting SpecStatus = "waiting"
-	SpecRunning SpecStatus = "running"
+	SpecWaiting             SpecStatus    = "waiting"
+	SpecRunning             SpecStatus    = "running"
+	maxSignalLossCount      int           = 3
+	maxSignalLossCountReset time.Duration = 10 * time.Minute
 )
 
 // Spec is what manages the configuration and state of a folder being synced
@@ -103,7 +106,7 @@ func (s *Spec) Watch() error {
 	}
 
 	selectors := strings.Join(s.Details.Selector, ",")
-	
+
 	opts := metav1.ListOptions{}
 	opts.LabelSelector = selectors
 	watcher, err := cluster.Client.CoreV1().Pods(s.Details.Namespace).Watch(opts)
@@ -111,11 +114,14 @@ func (s *Spec) Watch() error {
 		return err
 	}
 
-	log.WithFields(s.Fields()).Debug("watching for updates")
-
 	s.stopWatching = make(chan bool)
 	go func() {
+		log.WithFields(s.Fields()).Debug("watching for updates")
+
 		defer watcher.Stop()
+		signalLossCount := 0
+		lastSignalLoss := time.Now()
+
 		for {
 			select {
 			case <-s.stopWatching:
@@ -128,9 +134,26 @@ func (s *Spec) Watch() error {
 				// as fast as possible. We want to just kill this when that's the
 				// case.
 				if event.Type == "" && event.Object == nil {
-					log.WithFields(s.Fields()).Error("lost connection to cluster")
-					SignalLoss <- true
-					return
+					// we restart the count if we haven't seen any disconnections in the last 10 minutes
+					if time.Now().Sub(lastSignalLoss) > maxSignalLossCountReset {
+						signalLossCount = 0
+					}
+
+					if signalLossCount == maxSignalLossCount {
+						log.WithFields(s.Fields()).Error("lost connection to cluster")
+						SignalLoss <- true
+						return
+					}
+
+					log.WithFields(s.Fields()).Error("lost connection to cluster, reconnecting")
+					watcher, err = cluster.Client.CoreV1().Pods(s.Details.Namespace).Watch(opts)
+					if err != nil {
+						log.WithFields(s.Fields()).Error(err)
+						return
+					}
+
+					signalLossCount++
+					lastSignalLoss = time.Now()
 				}
 
 				if event.Object == nil {
