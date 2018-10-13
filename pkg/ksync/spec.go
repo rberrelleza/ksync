@@ -149,6 +149,7 @@ func (s *Spec) Watch() error {
 					watcher, err = cluster.Client.CoreV1().Pods(s.Details.Namespace).Watch(opts)
 					if err != nil {
 						log.WithFields(s.Fields()).Error(err)
+						SignalLoss <- true
 						return
 					}
 
