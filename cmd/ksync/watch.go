@@ -49,6 +49,14 @@ func (w *watchCmd) new() *cobra.Command {
 		log.Fatal(err)
 	}
 
+	flags.String(
+		"syncthing-log",
+		"",
+		"syncthing log file name")
+	if err := w.BindFlag("syncthing-log"); err != nil {
+		log.Fatal(err)
+	}
+
 	return w.Cmd
 }
 
@@ -98,7 +106,7 @@ func (w *watchCmd) run(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	if err := ksync.NewSyncthing().Run(); err != nil {
+	if err := ksync.NewSyncthing().Run(w.Viper.GetString("syncthing-log")); err != nil {
 		log.Fatal(err)
 	}
 

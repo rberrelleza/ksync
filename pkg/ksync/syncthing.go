@@ -169,7 +169,7 @@ func (s *Syncthing) cleanupDaemon(pidPath string) error {
 }
 
 // Run starts up a local syncthing process to serve files from.
-func (s *Syncthing) Run() error {
+func (s *Syncthing) Run(logpath string) error {
 	pidPath := filepath.Join(cli.ConfigPath(), "syncthing.pid")
 	if !s.HasBinary() {
 		return fmt.Errorf("missing pre-requisites, run init to fix")
@@ -192,6 +192,14 @@ func (s *Syncthing) Run() error {
 		"-gui-apikey", viper.GetString("apikey"),
 		"-home", filepath.Join(cli.ConfigPath(), "syncthing"),
 		"-no-browser",
+	}
+
+	if logpath != "" {
+		if !filepath.IsAbs(logpath) {
+			logpath = filepath.Join(cli.ConfigPath(), "syncthing", logpath)
+		}
+
+		cmdArgs = append(cmdArgs, []string{"-logfile", logpath}...)
 	}
 
 	s.cmd = exec.Command(path, cmdArgs...) //nolint: gas, gosec
